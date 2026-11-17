@@ -12,7 +12,7 @@ import { Product } from './database';
 
 type SanphamProps = {
   item: Product;
-  onBuy: (productName: string) => void;
+  onBuy: (product: Product) => void;
   onPressDetail: (product: Product) => void;
 };
 
@@ -102,7 +102,7 @@ const SanphamSqlite = ({
         <TouchableOpacity
           style={styles.buyButton}
           activeOpacity={0.8}
-          onPress={() => onBuy(item.name)}
+          onPress={() => onBuy(item)}
         >
           <Text style={styles.buyButtonText}>+ Thêm vào giỏ</Text>
         </TouchableOpacity>

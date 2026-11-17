@@ -1,0 +1,75 @@
+{
+  "planHash": "5f007b591ba2632d8db04909cf7c29660af47ab2b7c179bcbd5dfb16716719d4",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-11-16T23:41:04.3317533Z",
+  "retryCount": 2,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "typescript-no-emit",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "",
+        "durationMs": 5149
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E Mobile2App@0.0.1 test\r\n\u003E jest --watch=false\r\n\r\nPASS __tests__/productFilters.test.ts\r\nPASS __tests__/orderItemImage.test.ts\r\nPASS __tests__/App.test.tsx\r\nPASS __tests__/orderImagePersistence.test.ts\r\n  \u25CF Console\r\n\r\n    console.log\r\n      Database initialized successfully\r\n\r\n      at log (src/components/database.ts:262:13)\r\n\r\n\r\nTest Suites: 4 passed, 4 total\r\nTests:       6 passed, 6 total\r\nSnapshots:   0 total\r\nTime:        3.739 s\r\nRan all test suites.\r\n",
+        "durationMs": 5914,
+        "testResults": {
+          "testFramework": "jest",
+          "runnerDetectedFrom": "package_json",
+          "testsTotal": 6,
+          "testsPassed": 6,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": false
+        }
+      }
+    ],
+    "executions": [
+      {
+        "source": "typescript-no-emit",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npx.CMD",
+        "args": [
+          "tsc",
+          "--noEmit"
+        ],
+        "cwd": "E:\\Mobile2\\Mobile2App",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test",
+          "--",
+          "--watch=false"
+        ],
+        "cwd": "E:\\Mobile2\\Mobile2App",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}

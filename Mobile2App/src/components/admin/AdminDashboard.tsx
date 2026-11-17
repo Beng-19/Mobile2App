@@ -56,6 +56,15 @@ const AdminDashboard = ({ navigation }: any) => {
       >
         <Text style={styles.buttonText}>Quản lý sản phẩm</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity
+  style={styles.button}
+  onPress={() => openScreen('AdminOrderManagement')}
+>
+  <Text style={styles.buttonText}>
+    Quản lý đơn hàng
+  </Text>
+</TouchableOpacity>
     </ScrollView>
   );
 };

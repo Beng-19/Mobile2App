@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 
@@ -7,6 +7,7 @@ import HomeStackScreen from './HomeStackScreen';
 import SignupSqlite from './SignupSqlite';
 import LoginSqlite from './LoginSqlite';
 import AdminStackScreen from './admin/AdminStackScreen';
+import { getCurrentUser, subscribeAuth } from './auth';
 
 export type RootTabParamList = {
   HomeTab: undefined;
@@ -18,6 +19,18 @@ export type RootTabParamList = {
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 const AppTabs = () => {
+  const [isAdmin, setIsAdmin] = useState(
+    getCurrentUser()?.role === 'admin',
+  );
+
+  useEffect(() => {
+    const unsubscribe = subscribeAuth(user => {
+      setIsAdmin(user?.role === 'admin');
+    });
+
+    return unsubscribe;
+  }, []);
+
   return (
     <Tab.Navigator
       initialRouteName="HomeTab"
@@ -27,7 +40,6 @@ const AppTabs = () => {
         tabBarInactiveTintColor: '#777',
       }}
     >
-      {/* Trang chủ người dùng */}
       <Tab.Screen
         name="HomeTab"
         component={HomeStackScreen}
@@ -39,19 +51,19 @@ const AppTabs = () => {
         }}
       />
 
-      {/* Trang quản trị */}
-      <Tab.Screen
-        name="AdminTab"
-        component={AdminStackScreen}
-        options={{
-          title: 'Admin',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18 }}>⚙</Text>
-          ),
-        }}
-      />
+      {isAdmin && (
+        <Tab.Screen
+          name="AdminTab"
+          component={AdminStackScreen}
+          options={{
+            title: 'Admin',
+            tabBarIcon: ({ color }) => (
+              <Text style={{ color, fontSize: 18 }}>⚙</Text>
+            ),
+          }}
+        />
+      )}
 
-      {/* Đăng ký */}
       <Tab.Screen
         name="SignupSqlite"
         component={SignupSqlite}
@@ -63,7 +75,6 @@ const AppTabs = () => {
         }}
       />
 
-      {/* Đăng nhập */}
       <Tab.Screen
         name="LoginSqlite"
         component={LoginSqlite}

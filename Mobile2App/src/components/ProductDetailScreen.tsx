@@ -8,9 +8,16 @@ import {
   TouchableOpacity,
   View,
   ImageSourcePropType,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Category, Product, fetchCategories } from './database';
+import {
+  addToCart,
+  Category,
+  Product,
+  fetchCategories,
+} from './database';
+import { getCurrentUser } from './auth';
 import CategorySelector from './CategorySelector';
 
 const productImages: Record<string, ImageSourcePropType> = {
@@ -79,6 +86,25 @@ const ProductDetailScreen = () => {
     });
   };
 
+  const addProductToCart = async () => {
+    const user = getCurrentUser();
+    if (!user) {
+      Alert.alert('Đăng nhập', 'Vui lòng đăng nhập để thêm sản phẩm vào giỏ hàng.');
+      return;
+    }
+
+    try {
+      await addToCart(user.id, product.id);
+      Alert.alert('Thành công', 'Đã thêm sản phẩm vào giỏ hàng.');
+    } catch (error) {
+      console.error('addProductToCart error:', error);
+      Alert.alert(
+        'Lỗi',
+        error instanceof Error ? error.message : 'Không thể thêm sản phẩm vào giỏ hàng.',
+      );
+    }
+  };
+
   return (
     <ScrollView
       style={styles.container}
@@ -99,6 +125,10 @@ const ProductDetailScreen = () => {
       <Text style={styles.label}>
         Danh mục: {category?.name ?? 'Chưa xác định'}
       </Text>
+
+      <TouchableOpacity style={styles.button} onPress={addProductToCart}>
+        <Text style={styles.buttonText}>Thêm vào giỏ hàng</Text>
+      </TouchableOpacity>
 
       <View style={styles.divider} />
 

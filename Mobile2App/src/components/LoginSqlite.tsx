@@ -10,9 +10,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
-import {
-  getUserByCredentials,
-} from './database';
+import { getUserByCredentials } from './database';
+import { setCurrentUser } from './auth';
 
 const LoginSqlite = ({ navigation }: any) => {
   const [username, setUsername] = useState('');
@@ -40,6 +39,9 @@ const LoginSqlite = ({ navigation }: any) => {
         );
         return;
       }
+
+      // Lưu tài khoản vào auth.ts
+      setCurrentUser(user);
 
       Alert.alert(
         'Thành công',

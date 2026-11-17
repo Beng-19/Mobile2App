@@ -26,26 +26,31 @@ const ProfileScreen = () => {
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (!user) return;
 
-    const profile = await fetchUserProfile(user.id);
+    try {
+      const profile = await fetchUserProfile(user.id);
 
-    if (profile) {
-      setFullName(profile.fullName || '');
-      setPhone(profile.phone || '');
-      setAddress(profile.address || '');
-    } else {
-      setFullName('');
-      setPhone('');
-      setAddress('');
+      if (profile) {
+        setFullName(profile.fullName || '');
+        setPhone(profile.phone || '');
+        setAddress(profile.address || '');
+      } else {
+        setFullName('');
+        setPhone('');
+        setAddress('');
+      }
+    } catch (error) {
+      console.error('loadProfile error:', error);
+      Alert.alert('Lỗi', 'Không thể tải thông tin cá nhân.');
     }
-  };
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
       loadProfile();
-    }, [user?.id]),
+    }, [loadProfile]),
   );
 
   const saveProfile = async () => {
@@ -58,6 +63,10 @@ const ProfileScreen = () => {
 
     if (!phone.trim()) {
       Alert.alert('Thông báo', 'Vui lòng nhập số điện thoại.');
+      return;
+    }
+    if (!/^[0-9+()\-\s]{8,20}$/.test(phone.trim())) {
+      Alert.alert('Thông tin chưa hợp lệ', 'Vui lòng kiểm tra lại số điện thoại.');
       return;
     }
 

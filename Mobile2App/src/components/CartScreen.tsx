@@ -27,26 +27,38 @@ const CartScreen = () => {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const loadCart = async () => {
+  const loadCart = useCallback(async () => {
     if (!user) {
       setItems([]);
       return;
     }
-    setLoading(true);
-    const data = await fetchCart(user.id);
-    setItems(data);
-    setLoading(false);
-  };
+    try {
+      setLoading(true);
+      const data = await fetchCart(user.id);
+      setItems(data);
+    } catch (error) {
+      console.error('loadCart error:', error);
+      Alert.alert('Lỗi', 'Không thể tải giỏ hàng.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
       loadCart();
-    }, [user?.id]),
+    }, [loadCart]),
   );
 
   const changeQuantity = async (item: CartItem, quantity: number) => {
-    await updateCartQuantity(item.id, quantity);
-    await loadCart();
+    if (!user) return;
+    try {
+      await updateCartQuantity(user.id, item.id, quantity);
+      await loadCart();
+    } catch (error) {
+      console.error('changeQuantity error:', error);
+      Alert.alert('Lỗi', 'Không thể cập nhật số lượng sản phẩm.');
+    }
   };
 
   const deleteItem = (id: number) => {
@@ -56,8 +68,14 @@ const CartScreen = () => {
         text: 'Xóa',
         style: 'destructive',
         onPress: async () => {
-          await removeFromCart(id);
-          await loadCart();
+          if (!user) return;
+          try {
+            await removeFromCart(user.id, id);
+            await loadCart();
+          } catch (error) {
+            console.error('removeFromCart error:', error);
+            Alert.alert('Lỗi', 'Không thể xóa sản phẩm khỏi giỏ hàng.');
+          }
         },
       },
     ]);
@@ -97,7 +115,7 @@ const CartScreen = () => {
           }
           renderItem={({ item }) => (
             <View style={styles.item}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.itemInfo}>
                 <Text style={styles.name}>{item.name}</Text>
                 <Text>{formatPrice(item.price)}</Text>
 
@@ -120,7 +138,7 @@ const CartScreen = () => {
                 </View>
               </View>
 
-              <View style={{ alignItems: 'flex-end' }}>
+              <View style={styles.itemActions}>
                 <Text style={styles.price}>
                   {formatPrice(item.price * item.quantity)}
                 </Text>
@@ -160,6 +178,8 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     borderRadius: 8,
   },
+  itemInfo: { flex: 1 },
+  itemActions: { alignItems: 'flex-end' },
   name: { fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
   price: { color: '#E53935', fontWeight: 'bold' },
   quantityRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },

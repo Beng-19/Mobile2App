@@ -6,12 +6,14 @@ import AdminDashboard from './AdminDashboard';
 import UserManagement from './UserManagement';
 import CategoryManagement from './CategoryManagement';
 import ProductManagement from './ProductManagement';
+import AdminOrderManagement from './AdminOrderManagement';
 
 export type AdminStackParamList = {
   AdminDashboard: undefined;
   UserManagement: undefined;
   CategoryManagement: undefined;
   ProductManagement: undefined;
+  AdminOrderManagement: undefined;
 };
 
 const Stack = createNativeStackNavigator<AdminStackParamList>();
@@ -48,6 +50,12 @@ const AdminStackScreen = () => {
         name="ProductManagement"
         component={ProductManagement}
         options={{ title: 'Quản lý sản phẩm' }}
+      />
+
+      <Stack.Screen
+        name="AdminOrderManagement"
+        component={AdminOrderManagement}
+        options={{ title: 'Quản lý đơn hàng' }}
       />
     </Stack.Navigator>
   );

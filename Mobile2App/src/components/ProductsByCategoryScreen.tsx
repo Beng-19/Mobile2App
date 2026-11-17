@@ -67,7 +67,7 @@ const ProductsByCategoryScreen = () => {
     loadProducts(id);
   };
 
-  const handleBuy = async (productName: string) => {
+  const handleBuy = async (product: Product) => {
     try {
       const user = await getCurrentUser();
 
@@ -79,18 +79,15 @@ const ProductsByCategoryScreen = () => {
         return;
       }
 
-      const product = products.find(
-        (item) => item.name === productName
-      );
-
-      if (!product) return;
-
       await addToCart(user.id, product.id);
 
-      Alert.alert('Thành công', `Đã thêm ${productName} vào giỏ hàng.`);
+      Alert.alert('Thành công', `Đã thêm ${product.name} vào giỏ hàng.`);
     } catch (error) {
       console.log('Lỗi thêm giỏ hàng:', error);
-      Alert.alert('Lỗi', 'Không thể thêm sản phẩm vào giỏ hàng.');
+      Alert.alert(
+        'Lỗi',
+        error instanceof Error ? error.message : 'Không thể thêm sản phẩm vào giỏ hàng.',
+      );
     }
   };
 

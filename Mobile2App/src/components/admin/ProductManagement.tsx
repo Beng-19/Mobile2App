@@ -35,22 +35,22 @@ const ProductManagement = () => {
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const productData = await fetchProducts();
     const categoryData = await fetchCategories();
 
     setProducts(productData);
     setCategories(categoryData);
 
-    if (categoryData.length > 0 && categoryId === null) {
-      setCategoryId(categoryData[0].id);
+    if (categoryData.length > 0) {
+      setCategoryId(current => current ?? categoryData[0].id);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, []),
+    }, [loadData]),
   );
 
   const resetForm = () => {
@@ -61,7 +61,12 @@ const ProductManagement = () => {
   };
 
   const saveProduct = async () => {
-    if (!name.trim() || !price.trim() || !categoryId) {
+    if (
+      !name.trim() ||
+      !price.trim() ||
+      !categoryId ||
+      !categories.some(category => category.id === categoryId)
+    ) {
       Alert.alert('Thông báo', 'Vui lòng nhập đầy đủ thông tin sản phẩm.');
       return;
     }

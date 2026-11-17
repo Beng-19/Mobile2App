@@ -1,4 +1,10 @@
 import { open, type NitroSQLiteConnection } from 'react-native-nitro-sqlite';
+import {
+  getCurrentUser as getAuthCurrentUser,
+  setCurrentUser as setAuthCurrentUser,
+  logoutUser as logoutAuthUser,
+  type User,
+} from './auth';
 
 // ======================================================
 // KẾT NỐI DATABASE
@@ -12,17 +18,14 @@ const getDb = (): NitroSQLiteConnection => {
   return db;
 };
 
-// Phiên đăng nhập lưu trong bộ nhớ khi ứng dụng đang chạy.
-let currentUser: User | null = null;
-
-export const getCurrentUser = (): User | null => currentUser;
+export const getCurrentUser = (): User | null => getAuthCurrentUser();
 
 export const setCurrentUser = (user: User | null): void => {
-  currentUser = user;
+  setAuthCurrentUser(user);
 };
 
 export const logoutUser = (): void => {
-  currentUser = null;
+  logoutAuthUser();
 };
 
 // ======================================================
@@ -41,12 +44,7 @@ export type Product = {
   categoryId: number;
 };
 
-export type User = {
-  id: number;
-  username: string;
-  password: string;
-  role: string;
-};
+export type { User };
 
 export type CartItem = {
   id: number;
@@ -65,6 +63,10 @@ export type Order = {
   total: number;
   createdAt: string;
   status: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  recipientAddress?: string;
+  paymentMethod?: string;
 };
 
 export type OrderItem = {
@@ -82,6 +84,13 @@ export type UserProfile = {
   fullName: string;
   phone: string;
   address: string;
+};
+
+export type CheckoutDetails = {
+  recipientName: string;
+  recipientPhone: string;
+  recipientAddress: string;
+  paymentMethod: 'COD';
 };
 
 // ======================================================
@@ -160,6 +169,36 @@ export const initDatabase = async (onSuccess?: () => void): Promise<void> => {
         FOREIGN KEY (productId) REFERENCES products(id)
       );
     `);
+    const ensureColumn = (
+      table: string,
+      column: string,
+      definition: string,
+    ) => {
+      const columns = database.execute(`PRAGMA table_info(${table});`)
+        .rows?._array as { name: string }[] | undefined;
+      if (!columns?.some(existing => existing.name === column)) {
+        database.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+      }
+    };
+
+    ensureColumn('cart', 'userId', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn('cart', 'productId', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn('cart', 'name', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn('cart', 'price', 'REAL NOT NULL DEFAULT 0');
+    ensureColumn('cart', 'quantity', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn('cart', 'img', "TEXT DEFAULT ''");
+    ensureColumn('products', 'img', "TEXT DEFAULT ''");
+
+    database.execute(`
+      UPDATE cart
+      SET
+        name = (SELECT name FROM products WHERE products.id = cart.productId),
+        price = (SELECT price FROM products WHERE products.id = cart.productId),
+        img = (SELECT img FROM products WHERE products.id = cart.productId)
+      WHERE EXISTS (
+        SELECT 1 FROM products WHERE products.id = cart.productId
+      );
+    `);
 
     database.execute(`
       CREATE TABLE IF NOT EXISTS orders (
@@ -171,6 +210,10 @@ export const initDatabase = async (onSuccess?: () => void): Promise<void> => {
         FOREIGN KEY (userId) REFERENCES users(id)
       );
     `);
+    ensureColumn('orders', 'recipientName', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn('orders', 'recipientPhone', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn('orders', 'recipientAddress', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn('orders', 'paymentMethod', "TEXT NOT NULL DEFAULT 'COD'");
 
     database.execute(`
       CREATE TABLE IF NOT EXISTS order_items (
@@ -184,6 +227,7 @@ export const initDatabase = async (onSuccess?: () => void): Promise<void> => {
         FOREIGN KEY (orderId) REFERENCES orders(id)
       );
     `);
+    ensureColumn('order_items', 'img', "TEXT DEFAULT ''");
 
     
     initialCategories.forEach(category => {
@@ -238,7 +282,16 @@ export const fetchCategories = async (): Promise<Category[]> => {
 
 export const addCategory = async (name: string): Promise<boolean> => {
   try {
-    getDb().execute('INSERT INTO categories (name) VALUES (?);', [name.trim()]);
+    const value = name.trim();
+    if (!value) return false;
+    const existing = getDb().execute(
+      'SELECT id FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1;',
+      [value],
+    );
+    if ((existing.rows?._array as { id: number }[] | undefined)?.length) {
+      return false;
+    }
+    getDb().execute('INSERT INTO categories (name) VALUES (?);', [value]);
     return true;
   } catch (error) {
     console.error('addCategory error:', error);
@@ -248,7 +301,16 @@ export const addCategory = async (name: string): Promise<boolean> => {
 
 export const updateCategory = async (category: Category): Promise<boolean> => {
   try {
-    getDb().execute('UPDATE categories SET name = ? WHERE id = ?;', [category.name, category.id]);
+    const value = category.name.trim();
+    if (!value) return false;
+    const existing = getDb().execute(
+      'SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND id != ? LIMIT 1;',
+      [value, category.id],
+    );
+    if ((existing.rows?._array as { id: number }[] | undefined)?.length) {
+      return false;
+    }
+    getDb().execute('UPDATE categories SET name = ? WHERE id = ?;', [value, category.id]);
     return true;
   } catch (error) {
     console.error('updateCategory error:', error);
@@ -287,21 +349,47 @@ export const fetchProducts = async (): Promise<Product[]> => {
 };
 
 export const addProduct = async (product: Omit<Product, 'id'>): Promise<void> => {
-  getDb().execute(
+  const database = getDb();
+  const category = database.execute(
+    'SELECT id FROM categories WHERE id = ? LIMIT 1;',
+    [product.categoryId],
+  );
+  if (!(category.rows?._array as { id: number }[] | undefined)?.length) {
+    throw new Error('Danh mục sản phẩm không hợp lệ.');
+  }
+  if (!product.name.trim() || !Number.isFinite(product.price) || product.price <= 0) {
+    throw new Error('Thông tin sản phẩm không hợp lệ.');
+  }
+  database.execute(
     'INSERT INTO products (name, price, img, categoryId) VALUES (?, ?, ?, ?);',
-    [product.name, product.price, product.img || '', product.categoryId],
+    [product.name.trim(), product.price, product.img || '', product.categoryId],
   );
 };
 
 export const updateProduct = async (product: Product): Promise<void> => {
-  getDb().execute(
+  const database = getDb();
+  const category = database.execute(
+    'SELECT id FROM categories WHERE id = ? LIMIT 1;',
+    [product.categoryId],
+  );
+  if (!(category.rows?._array as { id: number }[] | undefined)?.length) {
+    throw new Error('Danh mục sản phẩm không hợp lệ.');
+  }
+  if (!product.name.trim() || !Number.isFinite(product.price) || product.price <= 0) {
+    throw new Error('Thông tin sản phẩm không hợp lệ.');
+  }
+  database.execute(
     'UPDATE products SET name = ?, price = ?, img = ?, categoryId = ? WHERE id = ?;',
-    [product.name, product.price, product.img || '', product.categoryId, product.id],
+    [product.name.trim(), product.price, product.img || '', product.categoryId, product.id],
   );
 };
 
 export const deleteProduct = async (id: number): Promise<void> => {
-  getDb().execute('DELETE FROM products WHERE id = ?;', [id]);
+  const database = getDb();
+  await database.transaction(async tx => {
+    tx.execute('DELETE FROM cart WHERE productId = ?;', [id]);
+    tx.execute('DELETE FROM products WHERE id = ?;', [id]);
+  });
 };
 
 export const fetchProductsByCategory = async (categoryId: number): Promise<Product[]> => {
@@ -357,20 +445,37 @@ export const updateUser = async (user: User): Promise<void> => {
     'UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?;',
     [user.username, user.password, user.role, user.id],
   );
-  if (currentUser?.id === user.id) currentUser = user;
+  const authUser = getCurrentUser();
+  if (authUser?.id === user.id) setCurrentUser(user);
 };
 
 export const updateUserRole = async (id: number, role: string): Promise<void> => {
+  if (!Number.isInteger(id) || id <= 0 || !['admin', 'user'].includes(role)) {
+    throw new Error('Thông tin vai trò người dùng không hợp lệ.');
+  }
   getDb().execute('UPDATE users SET role = ? WHERE id = ?;', [role, id]);
-  if (currentUser?.id === id) currentUser = { ...currentUser, role };
+  const authUser = getCurrentUser();
+  if (authUser?.id === id) setCurrentUser({ ...authUser, role });
 };
 
 export const deleteUser = async (id: number): Promise<void> => {
+  if (getCurrentUser()?.id === id) {
+    throw new Error('Không thể xóa tài khoản đang đăng nhập.');
+  }
   const database = getDb();
-  database.execute('DELETE FROM cart WHERE userId = ?;', [id]);
-  database.execute('DELETE FROM user_profiles WHERE userId = ?;', [id]);
-  database.execute('DELETE FROM users WHERE id = ?;', [id]);
-  if (currentUser?.id === id) currentUser = null;
+  await database.transaction(async tx => {
+    const orders = tx.execute(
+      'SELECT id FROM orders WHERE userId = ?;',
+      [id],
+    ).rows?._array as { id: number }[] | undefined;
+    for (const order of orders || []) {
+      tx.execute('DELETE FROM order_items WHERE orderId = ?;', [order.id]);
+    }
+    tx.execute('DELETE FROM orders WHERE userId = ?;', [id]);
+    tx.execute('DELETE FROM cart WHERE userId = ?;', [id]);
+    tx.execute('DELETE FROM user_profiles WHERE userId = ?;', [id]);
+    tx.execute('DELETE FROM users WHERE id = ?;', [id]);
+  });
 };
 
 export const fetchUsers = async (): Promise<User[]> => {
@@ -394,7 +499,7 @@ export const getUserByCredentials = async (
     );
     const users = (result.rows?._array as User[]) || [];
     const user = users.length > 0 ? users[0] : null;
-    if (user) currentUser = user;
+    if (user) setCurrentUser(user);
     return user;
   } catch (error) {
     console.error('getUserByCredentials error:', error);
@@ -426,48 +531,50 @@ export const addToCart = async (
   productId: number,
   quantity: number = 1,
 ): Promise<void> => {
-  const database = getDb();
+  try {
+    const database = getDb();
 
-  const productResult = database.execute(
-    'SELECT * FROM products WHERE id = ? LIMIT 1;',
-    [productId],
-  );
+    if (!Number.isInteger(userId) || userId <= 0 ||
+        !Number.isInteger(productId) || productId <= 0 ||
+        !Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error('Thông tin người dùng hoặc sản phẩm không hợp lệ');
+    }
 
-  const products = (productResult.rows?._array as Product[]) || [];
-  const product = products[0];
+    await database.transaction(async tx => {
+      const users = tx.execute(
+        'SELECT id FROM users WHERE id = ? LIMIT 1;',
+        [userId],
+      ).rows?._array as { id: number }[] | undefined;
+      if (!users?.length) throw new Error('Tài khoản không còn tồn tại. Vui lòng đăng nhập lại.');
 
-  if (!product) {
-    throw new Error('Không tìm thấy sản phẩm');
-  }
+      const products = tx.execute(
+        'SELECT id, name, price, img FROM products WHERE id = ? LIMIT 1;',
+        [productId],
+      ).rows?._array as Product[] | undefined;
+      const product = products?.[0];
+      if (!product) throw new Error('Không tìm thấy sản phẩm trong database.');
 
-  const cartResult = database.execute(
-    'SELECT * FROM cart WHERE userId = ? AND productId = ? LIMIT 1;',
-    [userId, productId],
-  );
+      const cartItems = tx.execute(
+        'SELECT id FROM cart WHERE userId = ? AND productId = ? ORDER BY id LIMIT 1;',
+        [userId, productId],
+      ).rows?._array as { id: number }[] | undefined;
 
-  const cartItems = (cartResult.rows?._array as CartItem[]) || [];
-
-  if (cartItems.length > 0) {
-    const oldItem = cartItems[0];
-
-    database.execute(
-      'UPDATE cart SET quantity = ? WHERE id = ?;',
-      [oldItem.quantity + quantity, oldItem.id],
-    );
-  } else {
-    database.execute(
-      `INSERT INTO cart
-       (userId, productId, name, price, quantity, img)
-       VALUES (?, ?, ?, ?, ?, ?);`,
-      [
-        userId,
-        productId,
-        product.name,
-        product.price,
-        quantity,
-        product.img,
-      ],
-    );
+      if (cartItems?.length) {
+        tx.execute(
+          'UPDATE cart SET quantity = quantity + ?, name = ?, price = ?, img = ? WHERE id = ?;',
+          [quantity, product.name, product.price, product.img || '', cartItems[0].id],
+        );
+      } else {
+        tx.execute(
+          `INSERT INTO cart (userId, productId, name, price, quantity, img)
+           VALUES (?, ?, ?, ?, ?, ?);`,
+          [userId, productId, product.name, product.price, quantity, product.img || ''],
+        );
+      }
+    });
+  } catch (error) {
+    console.error('LỖI ADD TO CART:', error);
+    throw error;
   }
 };
 
@@ -475,39 +582,48 @@ export const fetchCart = async (
   userId: number,
 ): Promise<CartItem[]> => {
   try {
+    if (!Number.isInteger(userId) || userId <= 0) {
+      throw new Error('Mã người dùng không hợp lệ.');
+    }
     const result = getDb().execute(
-      'SELECT * FROM cart WHERE userId = ? ORDER BY id DESC;',
+      `SELECT cart.id, cart.userId, cart.productId, products.name,
+              products.price, cart.quantity, products.img
+       FROM cart
+       INNER JOIN products ON products.id = cart.productId
+       WHERE cart.userId = ? ORDER BY cart.id DESC;`,
       [userId],
     );
 
     return (result.rows?._array as CartItem[]) || [];
   } catch (error) {
     console.error('fetchCart error:', error);
-    return [];
+    throw error;
   }
 };
 
 export const updateCartQuantity = async (
+  userId: number,
   cartId: number,
   quantity: number,
 ): Promise<void> => {
   if (quantity <= 0) {
-    await removeFromCart(cartId);
+    await removeFromCart(userId, cartId);
     return;
   }
 
   getDb().execute(
-    'UPDATE cart SET quantity = ? WHERE id = ?;',
-    [quantity, cartId],
+    'UPDATE cart SET quantity = ? WHERE id = ? AND userId = ?;',
+    [quantity, cartId, userId],
   );
 };
 
 export const removeFromCart = async (
+  userId: number,
   cartId: number,
 ): Promise<void> => {
   getDb().execute(
-    'DELETE FROM cart WHERE id = ?;',
-    [cartId],
+    'DELETE FROM cart WHERE id = ? AND userId = ?;',
+    [cartId, userId],
   );
 };
 
@@ -523,49 +639,74 @@ export const clearCart = async (
 // ======================================================
 // ĐƠN HÀNG / THANH TOÁN
 // ======================================================
-export const checkout = async (userId: number): Promise<boolean> => {
+export const checkout = async (
+  userId: number,
+  details: CheckoutDetails,
+): Promise<boolean> => {
   try {
     const database = getDb();
-    const cartResult = database.execute('SELECT * FROM cart WHERE userId = ?;', [userId]);
-    const items = (cartResult.rows?._array as CartItem[]) || [];
-    if (items.length === 0) return false;
-
-    const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const createdAt = new Date().toISOString();
-
-    const result = database.execute(
-      'INSERT INTO orders (userId, total, createdAt, status) VALUES (?, ?, ?, ?);',
-      [userId, total, createdAt, 'Đang xử lý'],
-    );
-
-    const insertedRows = (result as any).insertedRows;
-    let orderId: number | undefined =
-      typeof insertedRows?.[0]?.insertId === 'number' ? insertedRows[0].insertId : undefined;
-
-    if (!orderId) {
-      const latest = database.execute(
-        'SELECT id FROM orders WHERE userId = ? ORDER BY id DESC LIMIT 1;',
-        [userId],
-      );
-      const rows = (latest.rows?._array as { id: number }[]) || [];
-      orderId = rows[0]?.id;
+    if (!Number.isInteger(userId) || userId <= 0 ||
+        !details.recipientName.trim() || !details.recipientPhone.trim() ||
+        !details.recipientAddress.trim() || details.paymentMethod !== 'COD') {
+      throw new Error('Thông tin giao hàng không hợp lệ.');
     }
 
-    if (!orderId) return false;
+    await database.transaction(async tx => {
+      const users = tx.execute(
+        'SELECT id FROM users WHERE id = ? LIMIT 1;',
+        [userId],
+      ).rows?._array as { id: number }[] | undefined;
+      if (!users?.length) throw new Error('Tài khoản không còn tồn tại.');
 
-    items.forEach((item: CartItem) => {
-      database.execute(
-        `INSERT INTO order_items (orderId, productId, name, price, quantity, img)
-         VALUES (?, ?, ?, ?, ?, ?);`,
-        [orderId, item.productId, item.name, item.price, item.quantity, item.img],
+      const items = tx.execute(
+        `SELECT cart.productId, products.name, products.price, cart.quantity, products.img
+         FROM cart
+         INNER JOIN products ON products.id = cart.productId
+         WHERE cart.userId = ? ORDER BY cart.id;`,
+        [userId],
+      ).rows?._array as Omit<CartItem, 'id' | 'userId'>[] | undefined;
+      if (!items?.length) throw new Error('Giỏ hàng đang trống.');
+
+      const total = items.reduce(
+        (sum, item) => sum + Number(item.price) * Number(item.quantity),
+        0,
       );
-    });
+      tx.execute(
+        `INSERT INTO orders
+         (userId, total, createdAt, status, recipientName, recipientPhone, recipientAddress, paymentMethod)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          userId,
+          total,
+          new Date().toISOString(),
+          'Đang xử lý',
+          details.recipientName.trim(),
+          details.recipientPhone.trim(),
+          details.recipientAddress.trim(),
+          details.paymentMethod,
+        ],
+      );
 
-    await clearCart(userId);
+      const orderRows = tx.execute(
+        'SELECT last_insert_rowid() AS id;',
+      ).rows?._array as { id: number }[] | undefined;
+      const orderId = orderRows?.[0]?.id;
+      if (!orderId) throw new Error('Không lấy được mã đơn hàng vừa tạo.');
+
+      for (const item of items) {
+        tx.execute(
+          `INSERT INTO order_items (orderId, productId, name, price, quantity, img)
+           VALUES (?, ?, ?, ?, ?, ?);`,
+          [orderId, item.productId, item.name, item.price, item.quantity, item.img || ''],
+        );
+      }
+
+      tx.execute('DELETE FROM cart WHERE userId = ?;', [userId]);
+    });
     return true;
   } catch (error) {
     console.error('checkout error:', error);
-    return false;
+    throw error;
   }
 };
 
@@ -578,19 +719,75 @@ export const fetchOrders = async (userId: number): Promise<Order[]> => {
     return (result.rows?._array as Order[]) || [];
   } catch (error) {
     console.error('fetchOrders error:', error);
-    return [];
+    throw error;
   }
 };
 
 export const fetchOrderItems = async (orderId: number): Promise<OrderItem[]> => {
   try {
-    const result = getDb().execute('SELECT * FROM order_items WHERE orderId = ?;', [orderId]);
+    const result = getDb().execute(
+      `SELECT id, orderId, productId, name, price, quantity, img
+       FROM order_items WHERE orderId = ?;`,
+      [orderId],
+    );
     return (result.rows?._array as OrderItem[]) || [];
   } catch (error) {
     console.error('fetchOrderItems error:', error);
-    return [];
+    throw error;
   }
 };
+
+
+// ======================================================
+// QUẢN LÝ ĐƠN HÀNG ADMIN
+// ======================================================
+
+export type AdminOrder = Order & {
+  username: string;
+  fullName: string;
+  phone: string;
+  address: string;
+};
+
+// Lấy tất cả đơn hàng kèm thông tin người dùng
+export const fetchAllOrders = async (): Promise<AdminOrder[]> => {
+  try {
+    const result = getDb().execute(`
+      SELECT
+        orders.*,
+        users.username AS username,
+        user_profiles.fullName AS fullName,
+        user_profiles.phone AS phone,
+        user_profiles.address AS address
+      FROM orders
+      LEFT JOIN users ON orders.userId = users.id
+      LEFT JOIN user_profiles ON orders.userId = user_profiles.userId
+      ORDER BY orders.id DESC;
+    `);
+
+    return (result.rows?._array as AdminOrder[]) || [];
+  } catch (error) {
+    console.error('fetchAllOrders error:', error);
+    throw error;
+  }
+};
+
+// Cập nhật trạng thái đơn hàng
+export const updateOrderStatus = async (
+  orderId: number,
+  status: string,
+): Promise<void> => {
+  try {
+    getDb().execute(
+      'UPDATE orders SET status = ? WHERE id = ?;',
+      [status, orderId],
+    );
+  } catch (error) {
+    console.error('updateOrderStatus error:', error);
+    throw error;
+  }
+};
+
 
 // ======================================================
 // HỒ SƠ NGƯỜI DÙNG
@@ -605,7 +802,7 @@ export const fetchUserProfile = async (userId: number): Promise<UserProfile | nu
     return profiles.length > 0 ? profiles[0] : null;
   } catch (error) {
     console.error('fetchUserProfile error:', error);
-    return null;
+    throw error;
   }
 };
 

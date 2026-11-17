@@ -39,11 +39,15 @@ const CategoryManagement = () => {
     }
 
     if (editingId !== null) {
-      await updateCategory({ id: editingId, name: name.trim() });
+      const success = await updateCategory({ id: editingId, name: name.trim() });
+      if (!success) {
+        Alert.alert('Lỗi', 'Tên danh mục đã tồn tại hoặc không thể cập nhật.');
+        return;
+      }
     } else {
       const success = await addCategory(name.trim());
       if (!success) {
-        Alert.alert('Lỗi', 'Không thể thêm danh mục');
+        Alert.alert('Lỗi', 'Tên danh mục đã tồn tại hoặc không thể thêm danh mục.');
         return;
       }
     }

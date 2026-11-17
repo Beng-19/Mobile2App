@@ -10,29 +10,45 @@ import {
   TextInput,
   Image,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
+// import {
+//   fetchProducts,
+//   fetchCategories,
+//   addToCart,
+//   getCurrentUser,
+//   Product,
+//   Category,
+// } from './database';
 import {
   fetchProducts,
   fetchCategories,
   addToCart,
-  getCurrentUser,
   Product,
   Category,
 } from './database';
 
+import { getCurrentUser } from './auth';
+
 import Header from './Header';
 import SanphamSqlite from './SanphamSqlite';
+import CategorySelector from './CategorySelector';
+import {
+  filterProducts,
+  PRICE_FILTER_OPTIONS,
+  type PriceFilterId,
+} from './productFilters';
 
 const bannerImage = require('./assets/images/balo.png');
 
 const HomeScreen = ({ navigation }: any) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(0);
   const [search, setSearch] = useState('');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
+  const [priceFilterId, setPriceFilterId] = useState<PriceFilterId>('all');
   const [loading, setLoading] = useState(true);
 
   // Tải dữ liệu sản phẩm và danh mục
@@ -61,60 +77,13 @@ const HomeScreen = ({ navigation }: any) => {
     }, [loadData]),
   );
 
-  // Chuẩn hóa tiếng Việt để tìm kiếm không phân biệt dấu
-  const normalizeText = (value: string): string => {
-    return value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd')
-      .trim();
-  };
-
   // Tìm kiếm theo tên, danh mục và lọc khoảng giá
   const filteredProducts = useMemo(() => {
-    const keyword = normalizeText(search);
-
-    const min =
-      minPrice.trim() !== '' ? Number(minPrice) : null;
-
-    const max =
-      maxPrice.trim() !== '' ? Number(maxPrice) : null;
-
-    return products.filter(product => {
-      const category = categories.find(
-        item => item.id === product.categoryId,
-      );
-
-      const productName = normalizeText(product.name);
-      const categoryName = normalizeText(category?.name || '');
-
-      const matchSearch =
-        keyword === '' ||
-        productName.includes(keyword) ||
-        categoryName.includes(keyword);
-
-      const matchMin =
-        min === null ||
-        (Number.isFinite(min) && product.price >= min);
-
-      const matchMax =
-        max === null ||
-        (Number.isFinite(max) && product.price <= max);
-
-      return matchSearch && matchMin && matchMax;
-    });
-  }, [products, categories, search, minPrice, maxPrice]);
-
-  // Xóa tất cả bộ lọc
-  const handleResetFilter = () => {
-    setSearch('');
-    setMinPrice('');
-    setMaxPrice('');
-  };
+    return filterProducts(products, categories, search, priceFilterId);
+  }, [products, categories, search, priceFilterId]);
 
   // Thêm sản phẩm vào giỏ hàng
-  const handleAddCart = async (productName: string) => {
+  const handleAddCart = async (product: Product) => {
     const user = getCurrentUser();
 
     if (!user) {
@@ -125,40 +94,21 @@ const HomeScreen = ({ navigation }: any) => {
       return;
     }
 
-    const product = products.find(
-      item => item.name === productName,
-    );
-
-    if (!product) {
-      Alert.alert('Thông báo', 'Không tìm thấy sản phẩm');
-      return;
-    }
-
     try {
       await addToCart(user.id, product.id);
       Alert.alert('Thành công', 'Đã thêm sản phẩm vào giỏ hàng');
     } catch (error) {
       console.log('Lỗi thêm giỏ hàng:', error);
-      Alert.alert('Lỗi', 'Không thể thêm sản phẩm vào giỏ hàng');
+      Alert.alert(
+        'Lỗi',
+        error instanceof Error ? error.message : 'Không thể thêm sản phẩm vào giỏ hàng',
+      );
     }
   };
 
   // Mở chi tiết sản phẩm
   const handleDetail = (product: Product) => {
     navigation.navigate('ProductDetail', { product });
-  };
-
-  // Biểu tượng danh mục
-  const getCategoryIcon = (name: string) => {
-    const value = normalizeText(name);
-
-    if (value.includes('ao')) return '👕';
-    if (value.includes('giay')) return '👟';
-    if (value.includes('balo')) return '🎒';
-    if (value.includes('mu')) return '🧢';
-    if (value.includes('tui')) return '👜';
-
-    return '🛍️';
   };
 
   // Phần đầu danh sách sản phẩm
@@ -186,7 +136,7 @@ const HomeScreen = ({ navigation }: any) => {
           </Text>
 
           <Text style={styles.bannerTitle}>
-            SHOP APP
+            SHOP BÈNG
           </Text>
 
           <Text style={styles.bannerDescription}>
@@ -208,41 +158,25 @@ const HomeScreen = ({ navigation }: any) => {
         Danh mục sản phẩm
       </Text>
 
-      <FlatList
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        data={categories}
-        keyExtractor={item => String(item.id)}
-        contentContainerStyle={styles.categoryList}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={styles.category}
-            onPress={() =>
-              navigation.navigate('ProductsByCategory', {
-                categoryId: item.id,
-                categoryName: item.name,
-              })
-            }
-          >
-            <Text style={styles.categoryIcon}>
-              {getCategoryIcon(item.name)}
-            </Text>
-
-            <Text
-              style={styles.categoryName}
-              numberOfLines={1}
-            >
-              {item.name}
-            </Text>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.emptyCategory}>
-            Chưa có danh mục sản phẩm
-          </Text>
-        }
-      />
+      {categories.length ? (
+        <CategorySelector
+          categories={categories}
+          selectedId={selectedCategoryId}
+          onSelect={categoryId => {
+            setSelectedCategoryId(categoryId);
+            const category = categories.find(item => item.id === categoryId);
+            if (!category) return;
+            navigation.navigate('ProductsByCategory', {
+              categoryId: category.id,
+              categoryName: category.name,
+            });
+          }}
+        />
+      ) : (
+        <Text style={styles.emptyCategory}>
+          Chưa có danh mục sản phẩm
+        </Text>
+      )}
 
       {/* Tiêu đề sản phẩm */}
       <View style={styles.sectionRow}>
@@ -265,7 +199,28 @@ const HomeScreen = ({ navigation }: any) => {
 
   return (
     <View style={styles.container}>
-      <Header />
+  <Header />
+
+      <View style={styles.shortcutRow}>
+        <TouchableOpacity
+          style={styles.cartButton}
+          onPress={() => navigation.navigate('CartScreen')}
+        >
+          <Text style={styles.cartButtonText}>🛒 Giỏ hàng</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.cartButton}
+          onPress={() => navigation.navigate('OrderHistoryScreen')}
+        >
+          <Text style={styles.cartButtonText}>Đơn hàng</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.cartButton}
+          onPress={() => navigation.navigate('ProfileScreen')}
+        >
+          <Text style={styles.cartButtonText}>Hồ sơ</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Tìm kiếm */}
       <View style={styles.searchBox}>
@@ -289,47 +244,38 @@ const HomeScreen = ({ navigation }: any) => {
       {/* Lọc khoảng giá */}
       <View style={styles.priceFilter}>
         <Text style={styles.filterTitle}>
-          Lọc sản phẩm theo khoảng giá (VNĐ)
+          Lọc theo giá
         </Text>
 
-        <View style={styles.priceRow}>
-          <TextInput
-            style={styles.priceInput}
-            placeholder="Giá thấp nhất"
-            placeholderTextColor="#999"
-            keyboardType="numeric"
-            value={minPrice}
-            onChangeText={setMinPrice}
-          />
-
-          <Text style={styles.priceSeparator}>-</Text>
-
-          <TextInput
-            style={styles.priceInput}
-            placeholder="Giá cao nhất"
-            placeholderTextColor="#999"
-            keyboardType="numeric"
-            value={maxPrice}
-            onChangeText={setMaxPrice}
-          />
-
-          <TouchableOpacity
-            style={styles.resetFilter}
-            onPress={handleResetFilter}
-          >
-            <Text style={styles.resetFilterText}>
-              Xóa
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {minPrice !== '' &&
-          maxPrice !== '' &&
-          Number(minPrice) > Number(maxPrice) && (
-            <Text style={styles.errorText}>
-              Giá thấp nhất không được lớn hơn giá cao nhất.
-            </Text>
-          )}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.priceOptions}
+        >
+          {PRICE_FILTER_OPTIONS.map(option => {
+            const selected = option.id === priceFilterId;
+            return (
+              <TouchableOpacity
+                key={option.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                activeOpacity={0.8}
+                style={[styles.priceOption, selected && styles.selectedPriceOption]}
+                onPress={() => setPriceFilterId(option.id)}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.priceOptionText,
+                    selected && styles.selectedPriceOptionText,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Danh sách sản phẩm */}
@@ -383,6 +329,25 @@ export default HomeScreen;
 // ==================== STYLES ====================
 
 const styles = StyleSheet.create({
+  shortcutRow: {
+    flexDirection: 'row',
+    marginHorizontal: 10,
+    marginTop: 10,
+  },
+  cartButton: {
+  flex: 1,
+  backgroundColor: '#FFF0F0',
+  marginHorizontal: 4,
+  padding: 12,
+  borderRadius: 10,
+  alignItems: 'center',
+},
+
+cartButtonText: {
+  color: '#E53935',
+  fontWeight: 'bold',
+  fontSize: 14,
+},
   container: {
     flex: 1,
     backgroundColor: '#F7F7F7',
@@ -434,47 +399,35 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  priceRow: {
+  priceOptions: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 2,
   },
 
-  priceInput: {
-    flex: 1,
-    height: 42,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    paddingHorizontal: 10,
-    color: '#222',
-    fontSize: 12,
-  },
-
-  priceSeparator: {
-    marginHorizontal: 7,
-    color: '#888',
-  },
-
-  resetFilter: {
-    backgroundColor: '#E53935',
-    paddingHorizontal: 12,
-    height: 42,
+  priceOption: {
+    height: 38,
+    flexGrow: 0,
+    flexShrink: 0,
     justifyContent: 'center',
-    borderRadius: 9,
-    marginLeft: 7,
+    paddingHorizontal: 12,
+    backgroundColor: '#EEEEEE',
+    borderRadius: 19,
+    marginRight: 8,
   },
 
-  resetFilterText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
+  selectedPriceOption: {
+    backgroundColor: '#E53935',
+  },
+
+  priceOptionText: {
+    color: '#555',
     fontSize: 12,
+    fontWeight: '600',
   },
 
-  errorText: {
-    color: '#E53935',
-    fontSize: 11,
-    marginTop: 5,
+  selectedPriceOptionText: {
+    color: '#fff',
   },
 
   welcome: {
@@ -569,41 +522,11 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
 
-  categoryList: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-
-  category: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    width: 82,
-    height: 82,
-    marginHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    elevation: 1,
-  },
-
-  categoryIcon: {
-    fontSize: 26,
-    marginBottom: 5,
-  },
-
-  categoryName: {
-    color: '#444',
-    fontSize: 10,
-    fontWeight: '600',
-    textAlign: 'center',
-    paddingHorizontal: 3,
-  },
-
   emptyCategory: {
     color: '#888',
     marginHorizontal: 16,
     fontSize: 12,
+    marginVertical: 8,
   },
 
   sectionRow: {

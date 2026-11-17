@@ -14,9 +14,11 @@ import {
   deleteUser,
   User,
 } from '../database';
+import { getCurrentUser } from '../auth';
 
 const UserManagement = () => {
   const [users, setUsers] = useState<User[]>([]);
+  const currentUser = getCurrentUser();
 
   const loadUsers = async () => {
     setUsers(await fetchUsers());
@@ -29,6 +31,10 @@ const UserManagement = () => {
   );
 
   const changeRole = (user: User) => {
+    if (user.id === currentUser?.id) {
+      Alert.alert('Không thể thay đổi quyền', 'Bạn không thể thay đổi quyền của tài khoản đang đăng nhập.');
+      return;
+    }
     const newRole = user.role === 'admin' ? 'user' : 'admin';
 
     Alert.alert(
@@ -39,8 +45,13 @@ const UserManagement = () => {
         {
           text: 'Đồng ý',
           onPress: async () => {
-            await updateUserRole(user.id, newRole);
-            loadUsers();
+            try {
+              await updateUserRole(user.id, newRole);
+              await loadUsers();
+            } catch (error) {
+              console.error('updateUserRole error:', error);
+              Alert.alert('Lỗi', 'Không thể cập nhật quyền người dùng.');
+            }
           },
         },
       ],
@@ -48,14 +59,23 @@ const UserManagement = () => {
   };
 
   const removeUser = (id: number) => {
+    if (id === currentUser?.id) {
+      Alert.alert('Không thể xóa', 'Bạn không thể xóa tài khoản đang đăng nhập.');
+      return;
+    }
     Alert.alert('Xác nhận', 'Bạn có chắc muốn xóa người dùng này?', [
       { text: 'Hủy', style: 'cancel' },
       {
         text: 'Xóa',
         style: 'destructive',
         onPress: async () => {
-          await deleteUser(id);
-          loadUsers();
+          try {
+            await deleteUser(id);
+            await loadUsers();
+          } catch (error) {
+            console.error('deleteUser error:', error);
+            Alert.alert('Lỗi', 'Không thể xóa người dùng.');
+          }
         },
       },
     ]);
@@ -79,7 +99,7 @@ const UserManagement = () => {
               <Text style={styles.buttonText}>Đổi quyền</Text>
             </TouchableOpacity>
 
-            {item.username !== 'admin' && (
+            {item.id !== currentUser?.id && (
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => removeUser(item.id)}
